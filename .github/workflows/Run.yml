@@ -19,10 +19,10 @@ jobs:
       with:
         python-version: '3.10'
 
-    # Неубиваемое скачивание релиза через встроенный GitHub CLI
+    # Исправленное скачивание: указали и паттерн, и перезапись
     - name: Download Release Asset
       run: |
-        gh release download --clobber
+        gh release download --pattern "*.zip" --clobber
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
