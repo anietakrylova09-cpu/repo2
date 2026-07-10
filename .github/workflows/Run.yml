@@ -22,7 +22,12 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '20'
+
+    - name: Set up pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 9
 
     - name: Download Release Asset
       run: |
@@ -37,23 +42,22 @@ jobs:
 
     - name: Install dependencies
       run: |
-        # Ищем папку проекта, строго игнорируя системный хлам и node_modules
-        PROJ_DIR="."
-        if [ ! -f "package.json" ] && [ ! -f "requirements.txt" ]; then
-          FOUND_DIR=$(find . -maxdepth 3 \( -name "package.json" -o -name "requirements.txt" \) -not -path "*/node_modules/*" -not -path "*/.*" | head -n 1 | xargs dirname 2>/dev/null)
-          if [ ! -z "$FOUND_DIR" ]; then
-            PROJ_DIR="$FOUND_DIR"
-          fi
-        fi
+        # Находим самый верхний уровень проекта (корень воркспейса)
+        WORKSPACE_ROOT=$(find . -maxdepth 4 \( -name "pnpm-workspace.yaml" -o -name "package.json" -o -name "requirements.txt" \) -not -path "*/node_modules/*" -not -path "*/.*" | awk -F/ '{print NF, $0}' | sort -n | head -n 1 | cut -d' ' -f2- | xargs dirname 2>/dev/null)
+        if [ -z "$WORKSPACE_ROOT" ]; then WORKSPACE_ROOT="."; fi
         
-        echo "Папка с проектом определена как: $PROJ_DIR"
-        cd "$PROJ_DIR"
+        echo "Корень воркспейса определен как: $WORKSPACE_ROOT"
+        cd "$WORKSPACE_ROOT"
         
-        # Устанавливаем системные кодеки на всякий случай
+        # Ставим системные утилиты Linux
         sudo apt-get update && sudo apt-get install -y ffmpeg libsm6 libxext6
 
-        if [ -f package.json ]; then
-          echo "Установка Node.js пакетов..."
+        # Проверяем, используется ли pnpm / catalog
+        if [ -f pnpm-workspace.yaml ] || grep -q '"catalog:"' package.json 2>/dev/null; then
+          echo "Обнаружен pnpm каталог. Устанавливаем зависимости через pnpm..."
+          pnpm install
+        elif [ -f package.json ]; then
+          echo "Установка Node.js пакетов через npm..."
           npm install --production || npm install
         fi
         
@@ -72,18 +76,19 @@ jobs:
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       run: |
-        PROJ_DIR="."
-        if [ ! -f "package.json" ] && [ ! -f "requirements.txt" ] && [ ! -f "bot.py" ] && [ ! -f "main.py" ]; then
-          FOUND_DIR=$(find . -maxdepth 3 \( -name "package.json" -o -name "requirements.txt" -o -name "bot.py" -o -name "main.py" \) -not -path "*/node_modules/*" -not -path "*/.*" | head -n 1 | xargs dirname 2>/dev/null)
-          if [ ! -z "$FOUND_DIR" ]; then
-            PROJ_DIR="$FOUND_DIR"
-          fi
+        # Ищем конкретную папку, где лежит исполняемый скрипт бота
+        RUN_DIR=$(find . -maxdepth 4 \( -name "bot.py" -o -name "main.py" -o -name "run.py" -o -name "index.js" -o -name "bot.js" \) -not -path "*/node_modules/*" -not -path "*/.*" | head -n 1 | xargs dirname 2>/dev/null)
+        
+        # Если файлы не нашлись, берем папку с самым глубоким package.json (например, scripts)
+        if [ -z "$RUN_DIR" ]; then
+          RUN_DIR=$(find . -maxdepth 4 -name "package.json" -not -path "*/node_modules/*" -not -path "*/.*" | awk -F/ '{print NF, $0}' | sort -nr | head -n 1 | cut -d' ' -f2- | xargs dirname 2>/dev/null)
         fi
+        if [ -z "$RUN_DIR" ]; then RUN_DIR="."; fi
         
-        echo "Переходим в папку запуска: $PROJ_DIR"
-        cd "$PROJ_DIR"
+        echo "Переходим в папку запуска: $RUN_DIR"
+        cd "$RUN_DIR"
         
-        # Пересоздаем чистый .env в правильном месте
+        # Создаем файлы окружения прямо перед стартом
         echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" > .env
         echo "API_ID=${{ secrets.API_ID }}" >> .env
         echo "API_HASH=${{ secrets.API_HASH }}" >> .env
@@ -91,8 +96,12 @@ jobs:
         echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
 
         echo "=== СТАРТ БОТА ==="
-        if [ -f "package.json" ] && grep -q '"start"' package.json; then
-          npm start
+        if [ -f "package.json" ]; then
+          if command -v pnpm &> /dev/null; then
+            pnpm start || npm start
+          else
+            npm start
+          fi
         elif [ -f "bot.py" ]; then
           python bot.py
         elif [ -f "run.py" ]; then
