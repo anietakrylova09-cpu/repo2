@@ -1,0 +1,45 @@
+name: Run Bot From Release
+
+on:
+  # Позволит запускать бота вручную кнопкой из вкладки Actions
+  workflow_dispatch:
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    # Этот шаг автоматически скачает твой архив из Релизов
+    - name: Download Release Asset
+      uses: robinraju/release-downloader@v1.11
+      with:
+        latest: true
+        fileName: "название_твоего_архива.zip" # ⚠️ ЗАМЕНИ НА ИМЯ СВОЕГО ZIP-ФАЙЛА (например, project.zip)
+
+    # Распаковываем архив прямо в рабочую папку экшена
+    - name: Unzip project archive
+      run: |
+        unzip -o *.zip
+        rm *.zip
+
+    # На всякий случай обновляем зависимости, если внутри архива есть requirements.txt
+    - name: Install dependencies
+      run: |
+        if [ -f requirements.txt ]; then
+          pip install -r requirements.txt
+        else
+          echo "requirements.txt не найден, используем установленные в архиве библиотеки"
+        fi
+
+    # Запуск твоего ИИ-юзербота
+    - name: Run AI Bot
+      timeout-minutes: 300 # Бот поработает 5 часов, потом экшен сам отключится, чтобы не словить бан
+      run: python main.py # ⚠️ Убедись, что твой главный файл называется main.py, иначе замени имя
