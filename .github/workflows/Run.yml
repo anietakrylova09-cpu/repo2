@@ -14,13 +14,11 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # Настраиваем Python окружение
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
-    # Настраиваем Node.js окружение (на случай, если бот на JS/TS)
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
@@ -39,24 +37,25 @@ jobs:
 
     - name: Install dependencies
       run: |
-        # Автоматически находим, где лежат конфигурационные файлы проекта
         PROJ_DIR=$(find . -name "requirements.txt" -o -name "package.json" | head -n 1 | xargs dirname 2>/dev/null || echo ".")
         cd "$PROJ_DIR"
         
+        # Ставим системные утилиты на случай, если боту нужны доп. библиотеки в Linux
+        sudo apt-get update && sudo apt-get install -y ffmpeg libsm6 libxext6
+
         if [ -f package.json ]; then
-          echo "Обнаружен Node.js. Устанавливаем пакеты..."
-          npm install
+          echo "Установка Node.js пакетов..."
+          npm install --production || npm install
         fi
         
         if [ -f requirements.txt ]; then
-          echo "Обнаружен Python. Устанавливаем библиотеки..."
+          echo "Установка Python библиотек..."
           python -m pip install --upgrade pip
           pip install -r requirements.txt
         fi
 
     - name: Run AI Bot
       timeout-minutes: 300
-      # Прокидываем все твои секреты
       env:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         API_ID: ${{ secrets.API_ID }}
@@ -64,29 +63,40 @@ jobs:
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       run: |
-        # Находим корень проекта по ключевым файлам
         PROJ_DIR=$(find . -name "requirements.txt" -o -name "package.json" -o -name "*.py" -o -name "*.js" | head -n 1 | xargs dirname 2>/dev/null || echo ".")
         cd "$PROJ_DIR"
         
-        echo "=== УМНЫЙ ЗАПУСК БОТА ==="
+        # Автоматически создаем .env файл из секретов, если бот ищет его в коде
+        echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" > .env
+        echo "API_ID=${{ secrets.API_ID }}" >> .env
+        echo "API_HASH=${{ secrets.API_HASH }}" >> .env
+        echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> .env
+        echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
+
+        echo "=== СТАРТ БОТА ==="
         
-        if [ -f "package.json" ]; then
-          echo "Запускаем Node.js проект..."
-          npm start || node index.js || node bot.js || node main.js
+        if [ -f "package.json" ] && grep -q '"start"' package.json; then
+          npm start
         elif [ -f "bot.py" ]; then
           python bot.py
         elif [ -f "run.py" ]; then
           python run.py
         elif [ -f "main.py" ]; then
           python main.py
+        elif [ -f "index.js" ]; then
+          node index.js
+        elif [ -f "bot.js" ]; then
+          node bot.js
         else
-          # Если имя файла совсем нестандартное, запускаем первый попавшийся тяжелый скрипт скрипт в корне
-          TARGET=$(find . -maxdepth 1 -name "*.py" ! -name "setup.py" | head -n 1)
-          if [ ! -z "$TARGET" ]; then
-            echo "Запускаем найденный скрипт: $TARGET"
-            python "$TARGET"
+          # Если запускаемый файл имеет другое имя, ищем первый подходящий скрипт
+          ANY_PY=$(find . -maxdepth 1 -name "*.py" ! -name "setup.py" | head -n 1)
+          ANY_JS=$(find . -maxdepth 1 -name "*.js" | head -n 1)
+          if [ ! -z "$ANY_PY" ]; then
+            python "$ANY_PY"
+          elif [ ! -z "$ANY_JS" ]; then
+            node "$ANY_JS"
           else
-            echo "Критическая ошибка: Не удалось автоматически распознать запускатор!"
+            echo "Не удалось найти файл для запуска."
             ls -la
             exit 1
           fi
