@@ -29,27 +29,29 @@ jobs:
       run: |
         unzip -o *.zip
         rm *.zip
-        
-        # Если всё распаковалось в одну подпапку, вытаскиваем файлы наружу
-        if [ ! -f main.py ]; then
-          echo "Файл main.py не найден в корне. Ищем в подпапках..."
-          # Находим первую попавшуюся папку, где лежит main.py, и переносим всё оттуда
-          SUBDIR=$(find . -maxdepth 2 -name main.py -exec dirname {} \;)
-          if [ ! -z "$SUBDIR" ] && [ "$SUBDIR" != "." ]; then
-            echo "Найдена папка проекта: $SUBDIR. Переносим файлы..."
-            mv $SUBDIR/* . 2>/dev/null || true
-            mv $SUBDIR/.* . 2>/dev/null || true
-          fi
-        fi
 
     - name: Install dependencies
       run: |
-        if [ -f requirements.txt ]; then
-          pip install -r requirements.txt
+        # Ищем, в какой папке лежит requirements.txt
+        REQ_PATH=$(find . -name "requirements.txt" | head -n 1)
+        if [ ! -z "$REQ_PATH" ]; then
+          echo "Найдено requirements.txt в: $REQ_PATH"
+          pip install -r "$REQ_PATH"
         else
-          echo "requirements.txt не найден"
+          echo "requirements.txt вообще не найден в архиве!"
         fi
 
     - name: Run AI Bot
       timeout-minutes: 300
-      run: python main.py
+      run: |
+        # Ищем, где лежит main.py, переходим туда и запускаем бота
+        MAIN_PATH=$(find . -name "main.py" | head -n 1)
+        if [ ! -z "$MAIN_PATH" ]; then
+          BOT_DIR=$(dirname "$MAIN_PATH")
+          echo "Запускаем бота из папки: $BOT_DIR"
+          cd "$BOT_DIR"
+          python main.py
+        else
+          echo "Критическая ошибка: main.py не найден в проекте!"
+          exit 1
+        fi
