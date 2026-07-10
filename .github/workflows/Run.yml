@@ -19,10 +19,10 @@ jobs:
       with:
         python-version: '3.10'
 
-    # Исправленное скачивание: указали и паттерн, и перезапись
+    # Принудительно скачиваем файлы из релиза с тегом Uwu
     - name: Download Release Asset
       run: |
-        gh release download --pattern "*.zip" --clobber
+        gh release download Uwu --pattern "*.zip" --clobber
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
